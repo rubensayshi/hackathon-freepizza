@@ -11,17 +11,24 @@ CREATE TABLE `peer` (
 DROP TABLE IF EXISTS `experiment`;
 CREATE TABLE `experiment` (
     `id` INT(11) UNSIGNED NOT NULL AUTO_INCREMENT,
-    `tx1_raw` BLOB NOT NULL,
-    `tx1_hash` VARCHAR(64) NOT NULL,
-    `tx2_raw` BLOB NOT NULL,
-    `tx2_hash` VARCHAR(64) NOT NULL,
+    `started` INT(11) NOT NULL,
     PRIMARY KEY (`id`)
+);
+
+DROP TABLE IF EXISTS `experiment_chunk`;
+CREATE TABLE `experiment_chunk` (
+    `chunk_id` INT(11) UNSIGNED NOT NULL AUTO_INCREMENT,
+    `experiment_id` INT(11) UNSIGNED NOT NULL,
+    `ichunk` INT(2) UNSIGNED NOT NULL,
+    `tx_hash` VARCHAR(64) NOT NULL,
+    `tx_raw` BLOB NOT NULL,
+    PRIMARY KEY (`chunk_id`),
+    UNIQUE KEY `experiment_ichunk` (`experiment_id`, `ichunk`)
 );
 
 DROP TABLE IF EXISTS `experiment_peer`;
 CREATE TABLE `experiment_peer` (
-    `experiment_id` INT(11) UNSIGNED NOT NULL,
+    `chunk_id` INT(11) UNSIGNED NOT NULL,
     `peer_id` INT(11) UNSIGNED NOT NULL,
-    `tx` INT(1) UNSIGNED NOT NULL,
-    PRIMARY KEY (`experiment_id`, `peer_id`)
+    PRIMARY KEY (`chunk_id`, `peer_id`)
 );
