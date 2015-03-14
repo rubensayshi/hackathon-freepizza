@@ -12,6 +12,7 @@ var HDPrivateKey = bitcore.HDPrivateKey;
 var PrivateKey = bitcore.PrivateKey;
 var Transaction = bitcore.Transaction;
 var blocktrail = require('blocktrail-sdk');
+var sha256 = bitcore.crypto.Hash.sha256;
 var client = blocktrail.BlocktrailSDK({
     apiKey : "MY_APIKEY",
     apiSecret : "MY_APISECRET"
@@ -80,28 +81,46 @@ function buildExperimentTxs(ichunks, cb) {
 
 function doExperiment() {
     buildExperimentTxs(ichunks, function(err, txs) {
-
         var chunks = {};
 
         async.forEach(Object.keys(pool._connectedPeers), function(hash, cb) {
             var peer = pool._connectedPeers[hash];
-            peerDB.peerID(peer, function(err, peerID) {
-                var ichunk = peerID % ichunks;
 
-                if (!chunks[ichunk]) {
-                    chunks[ichunk] = [];
-                }
+            if (!peer) {
+                return cb(new Error("NO MORE PEER"));
+            }
 
-                chunks[ichunk].push(peer);
+            var addr = {ip: {v4: peer.host}, port: peer.port};
+            addr.hash = sha256(new Buffer((addr.ip.v6 || addr.ip.v4) + addr.port)).toString('hex');
 
-                cb();
+            peerDB.addAddr(addr, function(err) {
+                if (err) return cb(err);
+
+                peerDB.peerID(peer, function(err, peerID) {
+                    if (err || !peerID) return cb(err || new Error("No peerID"));
+
+                    var ichunk = peerID % ichunks;
+
+                    if (!chunks[ichunk]) {
+                        chunks[ichunk] = [];
+                    }
+
+                    chunks[ichunk].push(peer);
+
+                    cb();
+                });
             });
         }, function(err, res) {
-            _.forEach(chunks, function(chunk, ichunk) {
+            if (err) throw err;
+
+            debug('EXPERIMENT')('CHUNKS %o', chunks);
+
+            _.forEach(Object.keys(chunks), function(ichunk) {
+                var chunk = chunks[ichunk];
                 var tx = txs[ichunk];
                 txDB[tx.hash] = tx;
 
-                debug('EXPERIMENT')('CHUNK %d - TX %s - %d peers', tx.hash, chunks[ichunk].length);
+                debug('EXPERIMENT')('CHUNK %d - TX %s - %d peers', ichunk, tx.hash, chunks[ichunk].length);
             });
 
             experimentDB.createExperiment(chunks, txs, function(err, experimentID) {
@@ -115,7 +134,7 @@ function doExperiment() {
 
                     var txInv = [{
                         type: Messages.Inventory.TYPE.TX,
-                        hash: new Buffer(tx.ash, 'hex')
+                        hash: new Buffer(tx.hash, 'hex')
                     }];
 
                     var txMessage = new Messages.Inventory(txInv);
@@ -195,11 +214,13 @@ pool.on('peerinv', function(peer, message) {
 pool.on('seed', function seedEvent(ips) {
     var self = this;
 
+    debug('SEED')('%o', ips);
     _.forEach(ips, function(ip) {
         var addr = {ip: {v4: ip}};
         addr.hash = self.hashAddr(addr);
 
-        peerDB.addAddr(addr);
+        debug('SEED')('ADDR %o', addr);
+        // peerDB.addAddr(addr); // missing port :/
     });
 });
 
@@ -216,10 +237,15 @@ setInterval(function() {
 pool.on('peerready', function(peer) {
     debug('READY')('PEER READY %s', peer.host);
 
-    if (pool.numberConnected() >= ichunks && !experimentInProgress) {
-        experimentInProgress = true;
-        doExperiment();
-    }
+    var addr = {ip: {v4: peer.host}, port: peer.port};
+    addr.hash = sha256(new Buffer((addr.ip.v6 || addr.ip.v4) + addr.port)).toString('hex');
+    peerDB.addAddr(addr, function(err) {
+        if (err) throw err;
+        if (pool.numberConnected() >= ichunks && !experimentInProgress) {
+            experimentInProgress = true;
+            doExperiment();
+        }
+    });
 });
 
 // tmp
